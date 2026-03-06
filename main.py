@@ -1,5 +1,4 @@
-# ---------- DISCORD BOT ----------
-
+# ---------- main.py ----------
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
@@ -7,10 +6,19 @@ from discord import app_commands
 import json
 import os
 import io
+from threading import Thread  
 
+# Load environment variables
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 
+# ---------- Start Flask server ----------
+from keep_alive import run_flask  
+
+flask_thread = Thread(target=run_flask)
+flask_thread.start()
+
+# ---------- Discord Bot Setup ----------
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
@@ -21,18 +29,15 @@ tree = bot.tree
 CONFIG_FILE = "ticket_config.json"
 
 # ---------- CONFIG HELPERS ----------
-
 def load_config():
     if not os.path.exists(CONFIG_FILE):
         return {}
     with open(CONFIG_FILE, "r") as f:
         return json.load(f)
 
-
 def save_config(data):
     with open(CONFIG_FILE, "w") as f:
         json.dump(data, f, indent=4)
-
 
 def get_next_ticket_number(guild_id):
     config = load_config()
@@ -42,7 +47,6 @@ def get_next_ticket_number(guild_id):
     return guild_cfg["ticket_counter"]
 
 # ---------- VIEWS ----------
-
 class TicketTypeSelect(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -72,13 +76,10 @@ class TicketTypeSelect(discord.ui.View):
         mod_role = guild.get_role(config["mod_role_id"])
         admin_role = guild.get_role(config["admin_role_id"])
 
-        # ---------- Prevent duplicate tickets ----------
+        # Prevent duplicate tickets
         for ch in category.channels:
             if ch.topic == f"ticket_for:{user.id}":
-                await interaction.response.send_message(
-                    f"You already have a ticket open: {ch.mention}",
-                    ephemeral=True
-                )
+                await interaction.response.send_message(f"You already have a ticket open: {ch.mention}", ephemeral=True)
                 return
 
         ticket_number = get_next_ticket_number(guild.id)
@@ -105,16 +106,8 @@ class TicketTypeSelect(discord.ui.View):
         )
         embed.set_footer(text=f"Ticket #{ticket_number}")
 
-        await channel.send(
-            content=f"{user.mention} {notify_role.mention}",
-            embed=embed,
-            view=TicketControlView(ticket_number, ticket_type)
-        )
-
-        await interaction.response.send_message(
-            f"Your **{ticket_type}** ticket has been created: {channel.mention}",
-            ephemeral=True
-        )
+        await channel.send(content=f"{user.mention} {notify_role.mention}", embed=embed, view=TicketControlView(ticket_number, ticket_type))
+        await interaction.response.send_message(f"Your **{ticket_type}** ticket has been created: {channel.mention}", ephemeral=True)
 
 class TicketPanelView(discord.ui.View):
     def __init__(self):
@@ -122,11 +115,7 @@ class TicketPanelView(discord.ui.View):
 
     @discord.ui.button(label="🎟️ Open Ticket", style=discord.ButtonStyle.green, custom_id="ticket_open_button")
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(
-            "Please select your ticket type:",
-            view=TicketTypeSelect(),
-            ephemeral=True
-        )
+        await interaction.response.send_message("Please select your ticket type:", view=TicketTypeSelect(), ephemeral=True)
 
 class TicketControlView(discord.ui.View):
     def __init__(self, ticket_number: int, ticket_type: str):
@@ -152,7 +141,6 @@ class TicketControlView(discord.ui.View):
                 if "Claimed by:" in embed.description:
                     await interaction.response.send_message("This ticket is already claimed.", ephemeral=True)
                     return
-
                 embed.description += f"\n\n🟢 **Claimed by:** {interaction.user.mention}"
                 await msg.edit(embed=embed, view=self)
                 break
@@ -174,10 +162,7 @@ class TicketControlView(discord.ui.View):
             if not msg.author.bot:
                 participants.add(msg.author.mention)
 
-        transcript_file = discord.File(
-            io.StringIO("\n".join(messages)),
-            filename=f"{self.ticket_type.lower()}-ticket-{self.ticket_number:04d}.txt"
-        )
+        transcript_file = discord.File(io.StringIO("\n".join(messages)), filename=f"{self.ticket_type.lower()}-ticket-{self.ticket_number:04d}.txt")
 
         config = load_config().get(str(interaction.guild.id))
         log_channel = interaction.guild.get_channel(config["log_channel_id"])
@@ -186,10 +171,7 @@ class TicketControlView(discord.ui.View):
             participants_text = ", ".join(participants) if participants else "None"
             embed = discord.Embed(
                 title=f"Transcript: {self.ticket_type} Ticket #{self.ticket_number}",
-                description=(
-                    f"**Participants:** {participants_text}\n"
-                    f"**Closed by:** {interaction.user.mention}"
-                ),
+                description=f"**Participants:** {participants_text}\n**Closed by:** {interaction.user.mention}",
                 color=discord.Color.blurple()
             )
             await log_channel.send(embed=embed, file=transcript_file)
@@ -197,14 +179,10 @@ class TicketControlView(discord.ui.View):
         await interaction.channel.delete()
 
 # ---------- SLASH COMMAND ----------
-
 @tree.command(name="ticket-setup", description="Set up the ticket system")
 @app_commands.checks.has_permissions(administrator=True)
 async def ticket_setup(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        "Reply with:\n`panel_channel_id mod_role_id admin_role_id category_id log_channel_id`",
-        ephemeral=True
-    )
+    await interaction.response.send_message("Reply with:\n`panel_channel_id mod_role_id admin_role_id category_id log_channel_id`", ephemeral=True)
 
     def check(m):
         return m.author == interaction.user and m.channel == interaction.channel
@@ -225,7 +203,6 @@ async def ticket_setup(interaction: discord.Interaction):
 
     panel_channel = interaction.guild.get_channel(panel_id)
 
-    # ---------- INFORMATIONAL EMBED ----------
     embed = discord.Embed(
         title="🎟️ Support Ticket Panel",
         description=(
@@ -238,16 +215,15 @@ async def ticket_setup(interaction: discord.Interaction):
         color=discord.Color.yellow()
     )
     embed.set_footer(text="Please be patient, staff will respond as soon as possible.")
-    # ---------- SEND PANEL ----------
     await panel_channel.send(embed=embed, view=TicketPanelView())
-
     await interaction.followup.send("Ticket system configured.", ephemeral=True)
-# ---------- READY ----------
 
+# ---------- READY EVENT ----------
 @bot.event
 async def on_ready():
     bot.add_view(TicketPanelView())
     await tree.sync()
     print(f"Logged in as {bot.user}")
 
+# ---------- RUN BOT ----------
 bot.run(TOKEN)
