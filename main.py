@@ -226,4 +226,12 @@ async def on_ready():
     print(f"Logged in as {bot.user}")
 
 # ---------- RUN BOT ----------
-bot.run(TOKEN)
+import time
+
+while True:
+    try:
+        bot.run(TOKEN)
+    except Exception as e:
+        print(f"Bot crashed: {e}")
+        print("Retrying in 120 seconds...")
+        time.sleep(120)
