@@ -143,21 +143,18 @@ class TicketControlView(discord.ui.View):
             await interaction.response.send_message("Only staff can close tickets.", ephemeral=True)
             return
 
-        # ✅ Respond once immediately
         await interaction.response.send_message("Closing ticket...", ephemeral=True)
 
         participants = set()
         html_messages = ""
         txt_messages = ""
 
-        # Gather messages
         async for msg in interaction.channel.history(limit=None, oldest_first=True):
             participants.add(msg.author.mention)
             content = (msg.content or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             html_messages += f"<p><b>{msg.author}</b> [{msg.created_at}]: {content}</p>"
             txt_messages += f"[{msg.created_at}] {msg.author}: {msg.content or ''}\n"
 
-            # Include attachments with Discord CDN
             for attach in msg.attachments:
                 if attach.filename.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
                     html_messages += f'<p>[Attachment] {attach.filename}<br><img src="{attach.url}" style="max-width:500px;"></p>'
@@ -184,20 +181,20 @@ class TicketControlView(discord.ui.View):
         </html>
         """
 
-        pdf_path = f"{self.ticket_type.lower()}-ticket-{self.ticket_number:04d}.pdf"
-        txt_path = f"{self.ticket_type.lower()}-ticket-{self.ticket_number:04d}.txt"
+        import io
+        import pdfkit
 
-        # Save TXT
-        with open(txt_path, "w", encoding="utf-8") as f:
-            f.write(txt_messages)
+        # TXT in memory
+        txt_file = io.StringIO(txt_messages)
+        txt_file.seek(0)
 
-        # Generate PDF
-        config_pdfkit = pdfkit.configuration(
-            wkhtmltopdf=r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
-        )
-        pdfkit.from_string(html_content, pdf_path, configuration=config_pdfkit)
+        # PDF in memory
+        pdf_file = io.BytesIO()
+        config_pdfkit = pdfkit.configuration(wkhtmltopdf="/usr/bin/wkhtmltopdf")
+        pdfkit.from_string(html_content, pdf_file, configuration=config_pdfkit)
+        pdf_file.seek(0)
 
-        # Send both files to log channel
+        # Send files to log channel
         config = load_config().get(str(interaction.guild.id))
         log_channel = interaction.guild.get_channel(config["log_channel_id"])
         if log_channel:
@@ -207,11 +204,13 @@ class TicketControlView(discord.ui.View):
                 description=f"**Participants:** {participants_text}\n**Closed by:** {interaction.user.mention}",
                 color=discord.Color.blurple()
             )
-            with open(pdf_path, "rb") as pdf_file, open(txt_path, "rb") as txt_file:
-                await log_channel.send(embed=embed, files=[
-                    discord.File(pdf_file, filename=os.path.basename(pdf_path)),
-                    discord.File(txt_file, filename=os.path.basename(txt_path))
-                ])
+            await log_channel.send(
+                embed=embed,
+                files=[
+                    discord.File(fp=pdf_file, filename=f"{self.ticket_type.lower()}-ticket-{self.ticket_number:04d}.pdf"),
+                    discord.File(fp=txt_file, filename=f"{self.ticket_type.lower()}-ticket-{self.ticket_number:04d}.txt")
+                ]
+            )
 
         # Delete the channel
         await interaction.channel.delete()
