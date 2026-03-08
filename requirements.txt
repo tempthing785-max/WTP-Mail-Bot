@@ -1,4 +1,3 @@
 discord.py>=2.6.0
 python-dotenv>=1.0.0
-pdfkit
-
+weasyprint>=61.0
