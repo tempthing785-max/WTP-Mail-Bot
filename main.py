@@ -286,6 +286,8 @@ async def ticket_setup(interaction: discord.Interaction):
 async def on_ready():
 
     bot.add_view(TicketPanelView())
+    bot.add_view(TicketTypeSelect())
+    bot.add_view(TicketControlView(0, "Support"))
 
     synced = await tree.sync()
     print(f"Synced {len(synced)} command(s)")
@@ -293,14 +295,13 @@ async def on_ready():
     print(f"Logged in as {bot.user}")
 
 # ---------- RUN BOT ----------
-while True:
+import time
 
+while True:
     try:
         bot.run(TOKEN)
 
     except Exception as e:
-
         print(f"Bot crashed: {e}")
         print("Retrying in 120 seconds...")
-
         time.sleep(120)
