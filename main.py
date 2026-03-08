@@ -287,10 +287,10 @@ async def on_ready():
 
     bot.add_view(TicketPanelView())
 
-    await tree.sync()
+    synced = await tree.sync()
+    print(f"Synced {len(synced)} command(s)")
 
     print(f"Logged in as {bot.user}")
-
 
 # ---------- RUN BOT ----------
 while True:
