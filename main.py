@@ -7,7 +7,7 @@ import json
 import os
 import io
 import time
-import pdfkit  # For PDF generation
+from weasyprint import HTML   # <-- WeasyPrint PDF generator
 
 # ---------- Load environment ----------
 load_dotenv()
@@ -60,6 +60,7 @@ class TicketTypeSelect(discord.ui.View):
         guild = interaction.guild
         user = interaction.user
         config = load_config().get(str(guild.id))
+
         if not config:
             await interaction.response.send_message("Ticket system not configured.", ephemeral=True)
             return
@@ -68,10 +69,12 @@ class TicketTypeSelect(discord.ui.View):
         mod_role = guild.get_role(config["mod_role_id"])
         admin_role = guild.get_role(config["admin_role_id"])
 
-        # Prevent duplicate tickets
         for ch in category.channels:
             if ch.topic == f"ticket_for:{user.id}":
-                await interaction.response.send_message(f"You already have a ticket open: {ch.mention}", ephemeral=True)
+                await interaction.response.send_message(
+                    f"You already have a ticket open: {ch.mention}",
+                    ephemeral=True
+                )
                 return
 
         ticket_number = get_next_ticket_number(guild.id)
@@ -98,16 +101,28 @@ class TicketTypeSelect(discord.ui.View):
         )
         embed.set_footer(text=f"Ticket #{ticket_number}")
 
-        await channel.send(content=f"{user.mention} {notify_role.mention}", embed=embed, view=TicketControlView(ticket_number, ticket_type))
-        await interaction.response.send_message(f"Your **{ticket_type}** ticket has been created: {channel.mention}", ephemeral=True)
+        await channel.send(
+            content=f"{user.mention} {notify_role.mention}",
+            embed=embed,
+            view=TicketControlView(ticket_number, ticket_type)
+        )
+
+        await interaction.response.send_message(
+            f"Your **{ticket_type}** ticket has been created: {channel.mention}",
+            ephemeral=True
+        )
 
 class TicketPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🎟️ Open Ticket", style=discord.ButtonStyle.green, custom_id="ticket_open_button")
+    @discord.ui.button(label="🎟️ Open Ticket", style=discord.ButtonStyle.green)
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Please select your ticket type:", view=TicketTypeSelect(), ephemeral=True)
+        await interaction.response.send_message(
+            "Please select your ticket type:",
+            view=TicketTypeSelect(),
+            ephemeral=True
+        )
 
 class TicketControlView(discord.ui.View):
     def __init__(self, ticket_number: int, ticket_type: str):
@@ -121,24 +136,29 @@ class TicketControlView(discord.ui.View):
         admin_role = interaction.guild.get_role(config["admin_role_id"])
         return mod_role in interaction.user.roles or admin_role in interaction.user.roles
 
-    @discord.ui.button(label="🟢 Claim Ticket", style=discord.ButtonStyle.primary, custom_id="ticket_claim_button")
+    @discord.ui.button(label="🟢 Claim Ticket", style=discord.ButtonStyle.primary)
     async def claim_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self._has_staff_perms(interaction):
             await interaction.response.send_message("Only staff can claim tickets.", ephemeral=True)
             return
+
         async for msg in interaction.channel.history(limit=10):
             if msg.embeds:
                 embed = msg.embeds[0]
+
                 if "Claimed by:" in embed.description:
                     await interaction.response.send_message("This ticket is already claimed.", ephemeral=True)
                     return
+
                 embed.description += f"\n\n🟢 **Claimed by:** {interaction.user.mention}"
                 await msg.edit(embed=embed, view=self)
                 break
+
         await interaction.response.send_message("Ticket claimed!", ephemeral=True)
 
-    @discord.ui.button(label="🔒 Close Ticket", style=discord.ButtonStyle.red, custom_id="ticket_close_button")
+    @discord.ui.button(label="🔒 Close Ticket", style=discord.ButtonStyle.red)
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+
         if not self._has_staff_perms(interaction):
             await interaction.response.send_message("Only staff can close tickets.", ephemeral=True)
             return
@@ -150,112 +170,73 @@ class TicketControlView(discord.ui.View):
         txt_messages = ""
 
         async for msg in interaction.channel.history(limit=None, oldest_first=True):
+
             participants.add(msg.author.mention)
+
             content = (msg.content or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
             html_messages += f"<p><b>{msg.author}</b> [{msg.created_at}]: {content}</p>"
             txt_messages += f"[{msg.created_at}] {msg.author}: {msg.content or ''}\n"
 
             for attach in msg.attachments:
-                if attach.filename.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+
+                if attach.filename.lower().endswith((".png",".jpg",".jpeg",".gif",".webp")):
+
                     html_messages += f'<p>[Attachment] {attach.filename}<br><img src="{attach.url}" style="max-width:500px;"></p>'
+
                 else:
+
                     html_messages += f'<p>[Attachment] <a href="{attach.url}">{attach.filename}</a></p>'
+
                 txt_messages += f"[Attachment] {attach.filename}: {attach.url}\n"
 
         html_content = f"""
         <html>
         <head>
-            <meta charset="UTF-8">
-            <title>{self.ticket_type} Ticket #{self.ticket_number}</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; }}
-                p {{ margin: 5px 0; }}
-                b {{ color: #5865F2; }}
-                img {{ border: 1px solid #ccc; margin: 5px 0; }}
-            </style>
+        <meta charset="UTF-8">
+        <style>
+        body {{ font-family: Arial; }}
+        p {{ margin: 5px 0; }}
+        </style>
         </head>
         <body>
-            <h2>{self.ticket_type} Ticket #{self.ticket_number}</h2>
-            {html_messages}
+        <h2>{self.ticket_type} Ticket #{self.ticket_number}</h2>
+        {html_messages}
         </body>
         </html>
         """
-
-        import io
-        import pdfkit
 
         # TXT in memory
         txt_file = io.StringIO(txt_messages)
         txt_file.seek(0)
 
-        # PDF in memory
+        # PDF in memory with WeasyPrint
         pdf_file = io.BytesIO()
-        config_pdfkit = pdfkit.configuration(wkhtmltopdf="/usr/bin/wkhtmltopdf")
-        pdfkit.from_string(html_content, pdf_file, configuration=config_pdfkit)
+        HTML(string=html_content).write_pdf(pdf_file)
         pdf_file.seek(0)
 
-        # Send files to log channel
         config = load_config().get(str(interaction.guild.id))
         log_channel = interaction.guild.get_channel(config["log_channel_id"])
+
         if log_channel:
-            participants_text = ", ".join(participants) if participants else "None"
+
+            participants_text = ", ".join(participants)
+
             embed = discord.Embed(
                 title=f"Transcript: {self.ticket_type} Ticket #{self.ticket_number}",
-                description=f"**Participants:** {participants_text}\n**Closed by:** {interaction.user.mention}",
+                description=f"Participants: {participants_text}\nClosed by: {interaction.user.mention}",
                 color=discord.Color.blurple()
             )
+
             await log_channel.send(
                 embed=embed,
                 files=[
-                    discord.File(fp=pdf_file, filename=f"{self.ticket_type.lower()}-ticket-{self.ticket_number:04d}.pdf"),
-                    discord.File(fp=txt_file, filename=f"{self.ticket_type.lower()}-ticket-{self.ticket_number:04d}.txt")
+                    discord.File(fp=pdf_file, filename="ticket.pdf"),
+                    discord.File(fp=txt_file, filename="ticket.txt")
                 ]
             )
 
-        # Delete the channel
         await interaction.channel.delete()
-
-# ---------- SLASH COMMAND ----------
-@tree.command(name="ticket-setup", description="Set up the ticket system")
-@app_commands.checks.has_permissions(administrator=True)
-async def ticket_setup(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        "Reply with:\n`panel_channel_id mod_role_id admin_role_id category_id log_channel_id`",
-        ephemeral=True
-    )
-
-    def check(m):
-        return m.author == interaction.user and m.channel == interaction.channel
-
-    msg = await bot.wait_for("message", check=check)
-    panel_id, mod_role_id, admin_role_id, category_id, log_channel_id = map(int, msg.content.split())
-
-    config = load_config()
-    config[str(interaction.guild.id)] = {
-        "panel_channel_id": panel_id,
-        "mod_role_id": mod_role_id,
-        "admin_role_id": admin_role_id,
-        "category_id": category_id,
-        "log_channel_id": log_channel_id,
-        "ticket_counter": 0
-    }
-    save_config(config)
-
-    panel_channel = interaction.guild.get_channel(panel_id)
-    embed = discord.Embed(
-        title="🎟️ Support Ticket Panel",
-        description=(
-            "Welcome! Here you can open a ticket for any of the following reasons:\n"
-            "• **Support** – General help or questions\n"
-            "• **Report** – Report a user or issue\n"
-            "• **Appeal** – Appeal a staff decision\n\n"
-            "Click the button below to open a ticket."
-        ),
-        color=discord.Color.yellow()
-    )
-    embed.set_footer(text="Please be patient, staff will respond as soon as possible.")
-    await panel_channel.send(embed=embed, view=TicketPanelView())
-    await interaction.followup.send("Ticket system configured.", ephemeral=True)
 
 # ---------- READY EVENT ----------
 @bot.event
@@ -264,7 +245,7 @@ async def on_ready():
     await tree.sync()
     print(f"Logged in as {bot.user}")
 
-# ---------- RUN BOT with auto-restart ----------
+# ---------- RUN BOT ----------
 while True:
     try:
         bot.run(TOKEN)
